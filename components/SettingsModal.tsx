@@ -9,18 +9,17 @@ interface SettingsModalProps {
   onClose: () => void;
   systemPrompt: string;
   enhancerPrompt: string;
-  editorEnhancerPrompt: string;
-  onSave: (prompt: string, note: string, type: 'system' | 'enhancer' | 'editor-enhancer') => void;
-  onReset: (type: 'system' | 'enhancer' | 'editor-enhancer') => void;
+  onSave: (prompt: string, note: string, type: 'system' | 'enhancer') => void;
+  onReset: (type: 'system' | 'enhancer') => void;
   logs: NetworkLogItem[];
   useCodebasePrompt: boolean;
   onToggleCodebase: (val: boolean) => void;
   useCodebaseEnhancerPrompt: boolean;
   onToggleCodebaseEnhancer: (val: boolean) => void;
-  useCodebaseEditorEnhancerPrompt: boolean;
-  onToggleCodebaseEditorEnhancer: (val: boolean) => void;
   showAttachments: boolean;
   onToggleShowAttachments: (val: boolean) => void;
+  isSummaryModeEnabled: boolean;
+  onToggleSummaryMode: (val: boolean) => void;
   modelMode: ModelMode;
   setModelMode: (mode: ModelMode) => void;
   imageModelMode: ImageModelMode;
@@ -36,18 +35,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose, 
   systemPrompt,
   enhancerPrompt, 
-  editorEnhancerPrompt,
-  onSave, 
+  onSave,
   onReset,
   logs,
   useCodebasePrompt,
   onToggleCodebase,
   useCodebaseEnhancerPrompt,
   onToggleCodebaseEnhancer,
-  useCodebaseEditorEnhancerPrompt,
-  onToggleCodebaseEditorEnhancer,
   showAttachments,
   onToggleShowAttachments,
+  isSummaryModeEnabled,
+  onToggleSummaryMode,
   modelMode,
   setModelMode,
   imageModelMode,
@@ -57,7 +55,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   pollinationsImageModel,
   setPollinationsImageModel
 }) => {
-  const [activeType, setActiveType] = useState<'system' | 'enhancer' | 'editor-enhancer'>('system');
+  const [activeType, setActiveType] = useState<'system' | 'enhancer'>('system');
   const [localPrompt, setLocalPrompt] = useState(systemPrompt);
   const [activeTab, setActiveTab] = useState<'editor' | 'optimize' | 'history' | 'keys' | 'prefs'>('editor');
   
@@ -79,12 +77,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     if (isOpen) {
       if (activeType === 'system') setLocalPrompt(systemPrompt);
       else if (activeType === 'enhancer') setLocalPrompt(enhancerPrompt);
-      else setLocalPrompt(editorEnhancerPrompt);
       
       setTogetherKey(localStorage.getItem('togetherApiKey') || '');
       setOpenAiKey(localStorage.getItem('openAiApiKey') || '');
     }
-  }, [isOpen, activeType, systemPrompt, enhancerPrompt, editorEnhancerPrompt]);
+  }, [isOpen, activeType, systemPrompt, enhancerPrompt]);
 
   // Reset state when opening
   useEffect(() => {
@@ -135,8 +132,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         onToggleCodebase(false); 
       } else if (activeType === 'enhancer') {
         onToggleCodebaseEnhancer(false);
-      } else {
-        onToggleCodebaseEditorEnhancer(false);
       }
     }
   };
@@ -152,12 +147,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     onClose();
   };
 
-  const isLocked = activeType === 'system' ? useCodebasePrompt : activeType === 'enhancer' ? useCodebaseEnhancerPrompt : useCodebaseEditorEnhancerPrompt;
+  const isLocked = activeType === 'system' ? useCodebasePrompt : useCodebaseEnhancerPrompt;
 
   const toggleLocked = (val: boolean) => {
     if (activeType === 'system') onToggleCodebase(val);
     else if (activeType === 'enhancer') onToggleCodebaseEnhancer(val);
-    else onToggleCodebaseEditorEnhancer(val);
   };
 
   if (!isOpen) return null;
@@ -199,13 +193,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                     >
                         <Wand2 size={16} />
                         Gen Enhancer
-                    </button>
-                    <button
-                        onClick={() => setActiveType('editor-enhancer')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeType === 'editor-enhancer' ? 'bg-slate-700 text-orange-400 shadow-sm ring-1 ring-orange-500/20' : 'text-slate-500 hover:text-slate-300'}`}
-                    >
-                        <Pencil size={16} />
-                        Edit Enhancer
                     </button>
                 </div>
             </div>
@@ -254,7 +241,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="flex justify-between items-center mb-2">
                 <div className="flex flex-col">
                     <label className="block text-sm font-semibold text-slate-300">
-                    {activeType === 'system' ? 'Main Chatbot Instructions' : activeType === 'enhancer' ? 'Generation Enhancer Instructions' : 'Editor Enhancer Instructions'}
+                    {activeType === 'system' ? 'Main Chatbot Instructions' : 'Generation Enhancer Instructions'}
                     </label>
                     <div className="flex items-center gap-2 mt-1">
                         <span className="text-[10px] uppercase font-bold text-slate-500">Source:</span>
@@ -562,6 +549,23 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                             <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${showAttachments ? 'translate-x-5' : 'translate-x-0'}`} />
                         </button>
                     </div>
+
+                    <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex items-center justify-between mt-4">
+                        <div>
+                           <label className="block text-sm font-bold text-slate-200">
+                               Enable Summary Mode
+                           </label>
+                           <p className="text-xs text-slate-500 mt-1">
+                               Summarize past history after each image generation to save tokens.
+                           </p>
+                        </div>
+                        <button 
+                            onClick={() => onToggleSummaryMode(!isSummaryModeEnabled)}
+                            className={`relative w-11 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-primary ${isSummaryModeEnabled ? 'bg-primary' : 'bg-slate-600'}`}
+                        >
+                            <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${isSummaryModeEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
+                    </div>
                  </div>
 
                </div>
@@ -577,7 +581,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                       <Sparkles size={18} /> Prepare Optimization Prompt
                     </h3>
                     <p className="text-sm text-amber-200/80 leading-relaxed">
-                      Describe the issue you are facing with the <strong>{activeType === 'system' ? 'Main Agent' : activeType === 'enhancer' ? 'Gen Enhancer' : 'Edit Enhancer'}</strong>. We will construct a structured context prompt containing your instructions and logs.
+                      Describe the issue you are facing with the <strong>{activeType === 'system' ? 'Main Agent' : 'Gen Enhancer'}</strong>. We will construct a structured context prompt containing your instructions and logs.
                     </p>
                  </div>
 
@@ -653,7 +657,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="space-y-3 max-w-3xl mx-auto">
                 <div className="text-center mb-4">
                     <span className="inline-block px-3 py-1 bg-slate-800 text-slate-400 text-xs font-semibold rounded-full border border-slate-700">
-                        History for: {activeType === 'system' ? 'Main Agent' : activeType === 'enhancer' ? 'Gen Enhancer' : 'Edit Enhancer'}
+                        History for: {activeType === 'system' ? 'Main Agent' : 'Gen Enhancer'}
                     </span>
                 </div>
                 {history.length === 0 ? (

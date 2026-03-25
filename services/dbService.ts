@@ -1,6 +1,6 @@
 
 import { Message, PromptVersion } from '../types';
-import { SYSTEM_PROMPT, DEFAULT_ENHANCER_PROMPT, DEFAULT_EDITOR_ENHANCER_PROMPT } from '../constants';
+import { SYSTEM_PROMPT, DEFAULT_ENHANCER_PROMPT } from '../constants';
 
 const DB_NAME = 'LogowizDB';
 const DB_VERSION = 2;
@@ -59,7 +59,7 @@ export const savePromptVersion = async (
   content: string, 
   note: string, 
   source: 'user' | 'ai' | 'system',
-  promptType: 'system' | 'enhancer' | 'editor-enhancer' = 'system'
+  promptType: 'system' | 'enhancer' = 'system'
 ): Promise<number> => {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -81,7 +81,7 @@ export const savePromptVersion = async (
   });
 };
 
-export const getPromptHistory = async (promptType: 'system' | 'enhancer' | 'editor-enhancer' = 'system'): Promise<PromptVersion[]> => {
+export const getPromptHistory = async (promptType: 'system' | 'enhancer' = 'system'): Promise<PromptVersion[]> => {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([PROMPT_STORE], 'readonly');
@@ -98,7 +98,7 @@ export const getPromptHistory = async (promptType: 'system' | 'enhancer' | 'edit
   });
 };
 
-export const getLatestPrompt = async (promptType: 'system' | 'enhancer' | 'editor-enhancer' = 'system'): Promise<string | null> => {
+export const getLatestPrompt = async (promptType: 'system' | 'enhancer' = 'system'): Promise<string | null> => {
   try {
       const history = await getPromptHistory(promptType);
       if (history.length > 0) {
@@ -179,11 +179,6 @@ export const seedInitialData = async () => {
         await savePromptVersion(DEFAULT_ENHANCER_PROMPT, "Default Enhancer Prompt", "system", "enhancer");
       }
 
-      // Seed Editor Enhancer Prompt
-      const editorEnhancerHistory = await getPromptHistory('editor-enhancer');
-      if (editorEnhancerHistory.length === 0) {
-        await savePromptVersion(DEFAULT_EDITOR_ENHANCER_PROMPT, "Default Editor Enhancer Prompt", "system", "editor-enhancer");
-      }
   } catch (e) {
       console.warn("Seeding failed or skipped:", e);
   }

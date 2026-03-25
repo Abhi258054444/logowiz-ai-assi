@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
-import { NetworkLogItem, Message, ServiceResponse, PollinationsResponse } from '../types';
+import { NetworkLogItem, Message, ServiceResponse, PollinationsResponse, UsageMetadata } from '../types';
+import { SUMMARY_PROMPT } from '../constants';
 
 // --- Prompt Optimizer (Existing) ---
 
@@ -34,21 +35,19 @@ export const generateOptimizationPromptTemplate = (
   return `
 Role:-
 You are Highly Skilled Prompt Engineer with years of Experince You Are Extreamly Good With making Ai Chatbot Agent
-
 objective :-
 i facing this issue in the prompt so improve it
 User Issue Description: ${userIssue}
-
 Context:-
 in resource section you have request and response of the curent system.
 Here is the Current Prompt Configuration that needs improvement:
 ${currentSystemPrompt}
-
 Rule:-
-this prompt already great so only thing changes that required to achive the objective
+-> this prompt already great so only thing changes that required to achive the objective
 -> Prompt format must be same (Keep strictly to the output rules and structure defined in the original)
 -> If You get any conflict in editing the prompt ask question
--> Strictly do not assume anything and delete part of the prompt
+-> Strictly do not assume anything and ask before delete part of the prompt
+-> prompt length must not exceed 4500 words
 -> Also You need to list out what did you change add or delete
 
 Resource:-
@@ -221,7 +220,13 @@ export const sendGeminiChatRequest = async (history: Message[], systemPrompt: st
       duration: endTime - startTime
     };
 
-    return { data: parsed, debug };
+    const usage = response.usageMetadata ? {
+      promptTokenCount: response.usageMetadata.promptTokenCount || 0,
+      candidatesTokenCount: response.usageMetadata.candidatesTokenCount || 0,
+      totalTokenCount: response.usageMetadata.totalTokenCount || 0
+    } : undefined;
+
+    return { data: parsed, debug, usage };
 
   } catch (error: any) {
     const endTime = Date.now();
@@ -257,7 +262,7 @@ export const enhanceImagePromptGemini = async (
   toolCode: number = 1,
   imageInput?: string,
   modelName: string = 'gemini-3.1-flash-lite-preview'
-): Promise<{ enhancedPrompt: string, debug: NetworkLogItem }> => {
+): Promise<{ enhancedPrompt: string, debug: NetworkLogItem, usage?: UsageMetadata }> => {
   const startTime = Date.now();
   const requestId = Math.random().toString(36).substring(7);
 
@@ -324,7 +329,13 @@ export const enhanceImagePromptGemini = async (
       duration: endTime - startTime
     };
 
-    return { enhancedPrompt, debug };
+    const usage = response.usageMetadata ? {
+      promptTokenCount: response.usageMetadata.promptTokenCount || 0,
+      candidatesTokenCount: response.usageMetadata.candidatesTokenCount || 0,
+      totalTokenCount: response.usageMetadata.totalTokenCount || 0
+    } : undefined;
+
+    return { enhancedPrompt, debug, usage };
 
   } catch (error: any) {
     const endTime = Date.now();
@@ -379,4 +390,80 @@ const cleanJsonString = (str: string): string => {
   });
 
   return cleaned.trim();
+};
+
+export const summarizeChatHistory = async (history: Message[], modelName: string = 'gemini-2.5-flash'): Promise<{ summary: string, debug: NetworkLogItem, usage?: UsageMetadata }> => {
+  const startTime = Date.now();
+  const requestId = Math.random().toString(36).substring(7);
+
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+  // Format history into a single text block
+  const historyText = history.map(msg => {
+    let text = `[${msg.role.toUpperCase()}]: ${msg.content || msg.displayContent}`;
+    if (msg.attachments && msg.attachments.length > 0) {
+      text += `\\n[Attached Images: ${msg.attachments.length}]`;
+    }
+    return text;
+  }).join('\\n\\n');
+
+  const contents = [{ role: 'user', parts: [{ text: historyText }] }];
+
+  const config = {
+    systemInstruction: SUMMARY_PROMPT,
+  };
+
+  try {
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents: contents,
+      config: config
+    });
+
+    const summary = response.text || "Summary failed.";
+    const endTime = Date.now();
+    
+    const debug: NetworkLogItem = {
+      id: requestId,
+      timestamp: startTime,
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent (Summarizer)`,
+      method: 'SDK',
+      requestHeaders: { 'Authorization': 'HIDDEN' },
+      requestBody: { 
+        model: modelName, 
+        systemInstruction: config.systemInstruction,
+        contents: contents
+      },
+      responseStatus: 200,
+      responseBody: { summary },
+      duration: endTime - startTime
+    };
+
+    const usage = response.usageMetadata ? {
+      promptTokenCount: response.usageMetadata.promptTokenCount || 0,
+      candidatesTokenCount: response.usageMetadata.candidatesTokenCount || 0,
+      totalTokenCount: response.usageMetadata.totalTokenCount || 0
+    } : undefined;
+
+    return { summary, debug, usage };
+  } catch (error: any) {
+    const endTime = Date.now();
+    const debug: NetworkLogItem = {
+      id: requestId,
+      timestamp: startTime,
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent (Summarizer)`,
+      method: 'SDK',
+      requestHeaders: {},
+      requestBody: { 
+        model: modelName,
+        systemInstruction: config.systemInstruction,
+        contents: contents
+      },
+      responseStatus: 500,
+      responseBody: { error: error.message },
+      duration: endTime - startTime
+    };
+    console.error("Gemini Summarization Failed:", error);
+    return { summary: "Failed to summarize context.", debug };
+  }
 };

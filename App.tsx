@@ -8,9 +8,10 @@ import Logo from './components/Logo';
 import { Message, NetworkLogItem, ModelMode, ImageModelMode } from './types';
 import { sendChatRequest, generateImage, enhanceImagePrompt } from './services/pollinationsService';
 import { generateImageTogether } from './services/togetherService';
-import { sendGeminiChatRequest, enhanceImagePromptGemini } from './services/geminiService';
+import { sendGeminiChatRequest, enhanceImagePromptGemini, summarizeChatHistory } from './services/geminiService';
 import { sendOpenAiChatRequest, enhanceImagePromptOpenAi } from './services/openaiService';
 import { countTokens } from './services/tokenService';
+import { calculateGeminiCost, PRICING } from './services/pricingService';
 import { 
   initDB, 
   getLatestPrompt, 
@@ -21,8 +22,7 @@ import {
 } from './services/dbService';
 import { 
   SYSTEM_PROMPT as DEFAULT_SYSTEM_PROMPT, 
-  DEFAULT_ENHANCER_PROMPT, 
-  DEFAULT_EDITOR_ENHANCER_PROMPT 
+  DEFAULT_ENHANCER_PROMPT 
 } from './constants';
 import { Menu } from 'lucide-react';
 
@@ -50,20 +50,19 @@ const App: React.FC = () => {
     return saved !== null ? saved === 'true' : true; 
   });
 
-  const [useCodebaseEditorEnhancerPrompt, setUseCodebaseEditorEnhancerPrompt] = useState<boolean>(() => {
-    const saved = localStorage.getItem('useCodebaseEditorEnhancerPrompt');
-    return saved !== null ? saved === 'true' : true; 
-  });
-
   // UI Preference States - Default to FALSE (Hidden) as requested
   const [showAttachments, setShowAttachments] = useState<boolean>(() => {
     const saved = localStorage.getItem('showAttachments');
     return saved !== null ? saved === 'true' : false; 
   });
 
+  const [isSummaryModeEnabled, setIsSummaryModeEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem('isSummaryModeEnabled');
+    return saved !== null ? saved === 'true' : false; 
+  });
+
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
   const [enhancerPrompt, setEnhancerPrompt] = useState(DEFAULT_ENHANCER_PROMPT);
-  const [editorEnhancerPrompt, setEditorEnhancerPrompt] = useState(DEFAULT_EDITOR_ENHANCER_PROMPT);
   
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDebugOpen, setIsDebugOpen] = useState(false);
@@ -72,11 +71,18 @@ const App: React.FC = () => {
   const [networkLogs, setNetworkLogs] = useState<NetworkLogItem[]>([]);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [totalTokens, setTotalTokens] = useState(0);
+  const [totalCost, setTotalCost] = useState<number>(0);
   
   // Models - Set Gemini and Seedream as defaults, load from storage
   const [modelMode, setModelMode] = useState<ModelMode>(() => {
     const saved = localStorage.getItem('modelMode');
-    return (saved as ModelMode) || 'gemini';
+    return (saved as ModelMode) || 'gemini-2.5-flash';
+  });
+  
+  const [enhancerModelMode, setEnhancerModelMode] = useState<ModelMode>(() => {
+    const saved = localStorage.getItem('enhancerModelMode');
+    // Default to the same as modelMode if not set
+    return (saved as ModelMode) || (localStorage.getItem('modelMode') as ModelMode) || 'gemini-2.5-flash';
   });
   
   const [imageModelMode, setImageModelMode] = useState<ImageModelMode>(() => {
@@ -136,10 +142,11 @@ const App: React.FC = () => {
   // Persist model settings
   useEffect(() => {
     localStorage.setItem('modelMode', modelMode);
+    localStorage.setItem('enhancerModelMode', enhancerModelMode);
     localStorage.setItem('imageModelMode', imageModelMode);
     localStorage.setItem('pollinationsTextModel', pollinationsTextModel);
     localStorage.setItem('pollinationsImageModel', pollinationsImageModel);
-  }, [modelMode, imageModelMode, pollinationsTextModel, pollinationsImageModel]);
+  }, [modelMode, enhancerModelMode, imageModelMode, pollinationsTextModel, pollinationsImageModel]);
 
   // --- Theme Extraction Logic ---
   useEffect(() => {
@@ -247,14 +254,6 @@ const App: React.FC = () => {
           if (savedEnhancerPrompt) setEnhancerPrompt(savedEnhancerPrompt);
         }
 
-        // Load Editor Enhancer Prompt
-        if (useCodebaseEditorEnhancerPrompt) {
-          setEditorEnhancerPrompt(DEFAULT_EDITOR_ENHANCER_PROMPT);
-        } else {
-          const savedEditorEnhancerPrompt = await getLatestPrompt('editor-enhancer');
-          if (savedEditorEnhancerPrompt) setEditorEnhancerPrompt(savedEditorEnhancerPrompt);
-        }
-
         await clearChatHistory();
 
       } catch (err) {
@@ -264,15 +263,15 @@ const App: React.FC = () => {
       }
     };
     initialize();
-  }, [useCodebasePrompt, useCodebaseEnhancerPrompt, useCodebaseEditorEnhancerPrompt]);
+  }, [useCodebasePrompt, useCodebaseEnhancerPrompt]);
 
   // Persist settings
   useEffect(() => {
     localStorage.setItem('useCodebasePrompt', String(useCodebasePrompt));
     localStorage.setItem('useCodebaseEnhancerPrompt', String(useCodebaseEnhancerPrompt));
-    localStorage.setItem('useCodebaseEditorEnhancerPrompt', String(useCodebaseEditorEnhancerPrompt));
     localStorage.setItem('showAttachments', String(showAttachments));
-  }, [useCodebasePrompt, useCodebaseEnhancerPrompt, useCodebaseEditorEnhancerPrompt, showAttachments]);
+    localStorage.setItem('isSummaryModeEnabled', String(isSummaryModeEnabled));
+  }, [useCodebasePrompt, useCodebaseEnhancerPrompt, showAttachments, isSummaryModeEnabled]);
 
   useEffect(() => {
     if (!isDataLoaded) return;
@@ -290,12 +289,13 @@ const App: React.FC = () => {
   const handleClearChat = async () => {
     if (window.confirm("Are you sure you want to clear the conversation?")) {
       setMessages([{ ...INITIAL_MESSAGE }]);
+      setTotalCost(0);
       // Close mobile sidebar if open
       setIsSidebarOpen(false);
     }
   };
 
-  const handleSavePrompt = async (newPrompt: string, note: string = "User Update", type: 'system' | 'enhancer' | 'editor-enhancer') => {
+  const handleSavePrompt = async (newPrompt: string, note: string = "User Update", type: 'system' | 'enhancer') => {
     try {
       await savePromptVersion(newPrompt, note, note.includes("Optimize") ? 'ai' : 'user', type);
       
@@ -305,34 +305,28 @@ const App: React.FC = () => {
       } else if (type === 'enhancer') {
         setEnhancerPrompt(newPrompt);
         setUseCodebaseEnhancerPrompt(false);
-      } else if (type === 'editor-enhancer') {
-        setEditorEnhancerPrompt(newPrompt);
-        setUseCodebaseEditorEnhancerPrompt(false);
       }
     } catch (err) {
       console.error("Failed to save prompt:", err);
       // Fallback update local state even if save failed
       if (type === 'system') setSystemPrompt(newPrompt);
       else if (type === 'enhancer') setEnhancerPrompt(newPrompt);
-      else setEditorEnhancerPrompt(newPrompt);
     }
   };
   
-  const handleResetPrompt = async (type: 'system' | 'enhancer' | 'editor-enhancer') => {
+  const handleResetPrompt = async (type: 'system' | 'enhancer') => {
       let defaultContent = DEFAULT_SYSTEM_PROMPT;
       if (type === 'enhancer') defaultContent = DEFAULT_ENHANCER_PROMPT;
-      if (type === 'editor-enhancer') defaultContent = DEFAULT_EDITOR_ENHANCER_PROMPT;
       
       await handleSavePrompt(defaultContent, "Reset to Default", type);
   };
 
   const getModelNameDisplay = () => {
     if (modelMode === 'pollinations') return 'Standard';
-    if (modelMode === 'gemini-lite') return 'Gemini 3.1 Flash Lite';
-    if (modelMode === 'gemini-pro') return 'Gemini 3.1 Pro';
     if (modelMode === 'openai') return 'OpenAI (GPT-5.4 Nano)';
     if (modelMode === 'gemini-2.5-pro') return 'Gemini 2.5 Pro';
-    return 'Gemini 3 Flash';
+    if (modelMode === 'gemini-2.5-flash') return 'Gemini 2.5 Flash';
+    return 'Gemini 2.5 Flash';
   };
 
   const handleSendMessage = async (content: string, role: 'user' | 'assistant', attachments?: string[], base64Images?: string[]) => {
@@ -377,10 +371,13 @@ const App: React.FC = () => {
         responseData = data;
         debugInfo = debug;
       } else {
-        const modelName = modelMode === 'gemini-lite' ? 'gemini-3.1-flash-lite-preview' : modelMode === 'gemini-pro' ? 'gemini-3.1-pro-preview' : modelMode === 'gemini-2.5-pro' ? 'gemini-2.5-pro' : 'gemini-3-flash-preview';
-        const { data, debug } = await sendGeminiChatRequest([...messages, newMessage], systemPrompt, modelName);
+        const modelName = modelMode === 'gemini-2.5-pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+        const { data, debug, usage } = await sendGeminiChatRequest([...messages, newMessage], systemPrompt, modelName);
         responseData = data;
         debugInfo = debug;
+        if (usage) {
+          setTotalCost(prev => prev + calculateGeminiCost(modelName, usage));
+        }
       }
       
       setNetworkLogs(prev => [...prev, debugInfo]);
@@ -404,41 +401,22 @@ const App: React.FC = () => {
         if (responseData.tool_code === 1) {
             try {
               let enhancerResult;
-              if (modelMode === 'pollinations') {
+              if (enhancerModelMode === 'pollinations') {
                 enhancerResult = await enhanceImagePrompt(finalPrompt, enhancerPrompt, 1, undefined, pollinationsTextModel);
-              } else if (modelMode === 'openai') {
+              } else if (enhancerModelMode === 'openai') {
                 enhancerResult = await enhanceImagePromptOpenAi(finalPrompt, enhancerPrompt, 1, undefined, openAiApiKey);
               } else {
-                const modelName = modelMode === 'gemini-lite' ? 'gemini-3.1-flash-lite-preview' : modelMode === 'gemini-pro' ? 'gemini-3.1-pro-preview' : modelMode === 'gemini-2.5-pro' ? 'gemini-2.5-pro' : 'gemini-3-flash-preview';
+                const modelName = enhancerModelMode === 'gemini-2.5-pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
                 enhancerResult = await enhanceImagePromptGemini(finalPrompt, enhancerPrompt, 1, undefined, modelName);
+                if (enhancerResult.usage) {
+                  setTotalCost(prev => prev + calculateGeminiCost(modelName, enhancerResult.usage));
+                }
               }
               const { enhancedPrompt, debug: enhancerDebug } = enhancerResult;
               setNetworkLogs(prev => [...prev, enhancerDebug]);
               finalPrompt = enhancedPrompt;
             } catch (enhancerErr: any) {
                console.error("Enhancer failed, using original prompt", enhancerErr);
-               if (enhancerErr.debug) setNetworkLogs(prev => [...prev, enhancerErr.debug]);
-            }
-        }
-        
-        // Run Editor Enhancer if Editing Image (Tool Code 2)
-        if (responseData.tool_code === 2) {
-             try {
-              const editingImageInput = responseData.image_input && responseData.image_input.length > 0 ? responseData.image_input[0] : undefined;
-              let enhancerResult;
-              if (modelMode === 'pollinations') {
-                enhancerResult = await enhanceImagePrompt(finalPrompt, editorEnhancerPrompt, 2, editingImageInput, pollinationsTextModel);
-              } else if (modelMode === 'openai') {
-                enhancerResult = await enhanceImagePromptOpenAi(finalPrompt, editorEnhancerPrompt, 2, editingImageInput, openAiApiKey);
-              } else {
-                const modelName = modelMode === 'gemini-lite' ? 'gemini-3.1-flash-lite-preview' : modelMode === 'gemini-pro' ? 'gemini-3.1-pro-preview' : modelMode === 'gemini-2.5-pro' ? 'gemini-2.5-pro' : 'gemini-3-flash-preview';
-                enhancerResult = await enhanceImagePromptGemini(finalPrompt, editorEnhancerPrompt, 2, editingImageInput, modelName);
-              }
-              const { enhancedPrompt, debug: enhancerDebug } = enhancerResult;
-              setNetworkLogs(prev => [...prev, enhancerDebug]);
-              finalPrompt = enhancedPrompt;
-            } catch (enhancerErr: any) {
-               console.error("Editor Enhancer failed, using original prompt", enhancerErr);
                if (enhancerErr.debug) setNetworkLogs(prev => [...prev, enhancerErr.debug]);
             }
         }
@@ -471,6 +449,7 @@ const App: React.FC = () => {
              const { base64, url, debug } = await generateImageTogether(finalPrompt, togetherApiKey);
              genResult = { base64, url };
              setNetworkLogs(prev => [...prev, debug]);
+             setTotalCost(prev => prev + PRICING.TOGETHER_AI_IMAGE);
           } else {
              // USE POLLINATIONS (Fallback or Default)
              const { base64, url, debug } = await generateImage(finalPrompt, imageInput, pollinationsImageModel);
@@ -499,6 +478,48 @@ const App: React.FC = () => {
              displayContent: `Failed to generate image: ${err.message}. ${imageModelMode === 'together-seedream' && !togetherApiKey ? 'Please configure your API Key in Settings.' : ''}`,
              type: 'error'
            });
+        }
+        
+        // --- SUMMARY MODE LOGIC ---
+        // Find the index of the last summary message by checking if displayContent starts with the known string
+        let lastSummaryIdx = -1;
+        const allMsgs = [...messages, newMessage, ...newMessages];
+        for (let i = allMsgs.length - 1; i >= 0; i--) {
+           if (allMsgs[i].displayContent && allMsgs[i].displayContent?.startsWith("Conversation history summarized to save tokens.")) {
+               lastSummaryIdx = i;
+               break;
+           }
+        }
+        
+        const msgsSinceSummary = allMsgs.slice(lastSummaryIdx === -1 ? 0 : lastSummaryIdx + 1);
+        const imagesSinceSummary = msgsSinceSummary.filter(m => m.type === 'image');
+
+        if (isSummaryModeEnabled && imagesSinceSummary.length >= 2) {
+          const allMsgsBeforeSummary = [...messages, newMessage]; 
+          try {
+            const summaryModel = modelMode === 'gemini-2.5-pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+            const { summary, debug: sumDebug, usage: sumUsage } = await summarizeChatHistory(allMsgsBeforeSummary, summaryModel);
+            
+            if (sumDebug) setNetworkLogs(prev => [...prev, sumDebug]);
+            if (sumUsage) setTotalCost(prev => prev + calculateGeminiCost(summaryModel, sumUsage));
+
+            // Extract all image URLs from the history we are about to delete
+            const urls = imagesSinceSummary.flatMap(m => m.attachments || []);
+            const urlText = urls.length > 0 ? `\\n\\nRetained Image URLs:\\n${urls.map((u, i) => `${i + 1}. ${u}`).join('\\n')}` : '';
+
+            const summaryMsg: Message = {
+               role: 'user',
+               content: `[System Context: Previous conversation summarized to save tokens]\\n\\n${summary}${urlText}`,
+               displayContent: `Conversation history summarized to save tokens.${urlText}`,
+               type: 'text' // Custom UI presentation
+            };
+            
+            setMessages([INITIAL_MESSAGE, summaryMsg]);
+            setIsLoading(false);
+            return; 
+          } catch (err) {
+            console.error("Summary Generation Error", err);
+          }
         }
       }
 
@@ -537,11 +558,14 @@ const App: React.FC = () => {
         onClose={() => setIsSidebarOpen(false)}
         modelMode={modelMode}
         setModelMode={setModelMode}
+        enhancerModelMode={enhancerModelMode}
+        setEnhancerModelMode={setEnhancerModelMode}
         imageModelMode={imageModelMode}
         setImageModelMode={setImageModelMode}
         togetherApiKey={togetherApiKey}
         onOpenSettings={() => setIsSettingsOpen(true)}
         totalTokens={totalTokens}
+        totalCost={totalCost}
         onClearChat={handleClearChat}
         onOpenDebug={() => setIsDebugOpen(true)}
         debugLogCount={networkLogs.length}
@@ -555,7 +579,6 @@ const App: React.FC = () => {
           onClose={() => setIsSettingsOpen(false)}
           systemPrompt={systemPrompt}
           enhancerPrompt={enhancerPrompt}
-          editorEnhancerPrompt={editorEnhancerPrompt}
           onSave={handleSavePrompt}
           onReset={handleResetPrompt}
           logs={networkLogs}
@@ -563,10 +586,10 @@ const App: React.FC = () => {
           onToggleCodebase={setUseCodebasePrompt}
           useCodebaseEnhancerPrompt={useCodebaseEnhancerPrompt}
           onToggleCodebaseEnhancer={setUseCodebaseEnhancerPrompt}
-          useCodebaseEditorEnhancerPrompt={useCodebaseEditorEnhancerPrompt}
-          onToggleCodebaseEditorEnhancer={setUseCodebaseEditorEnhancerPrompt}
           showAttachments={showAttachments}
           onToggleShowAttachments={setShowAttachments}
+          isSummaryModeEnabled={isSummaryModeEnabled}
+          onToggleSummaryMode={setIsSummaryModeEnabled}
           modelMode={modelMode}
           setModelMode={setModelMode}
           imageModelMode={imageModelMode}
@@ -615,7 +638,7 @@ const App: React.FC = () => {
             {isLoading && (
               <div className="flex justify-start w-full mb-6">
                  <div className="flex items-center gap-2 bg-slate-900 px-4 py-3 rounded-2xl rounded-bl-none border border-slate-800 shadow-sm">
-                   <div className={`flex space-x-1 ${modelMode === 'gemini' ? 'text-blue-400' : modelMode === 'gemini-lite' ? 'text-teal-400' : modelMode === 'gemini-pro' ? 'text-emerald-400' : modelMode === 'openai' ? 'text-indigo-400' : modelMode === 'gemini-2.5-pro' ? 'text-rose-400' : 'text-primary'}`}>
+                   <div className={`flex space-x-1 ${modelMode === 'openai' ? 'text-indigo-400' : modelMode === 'gemini-2.5-pro' ? 'text-rose-400' : modelMode === 'gemini-2.5-flash' ? 'text-amber-400' : 'text-primary'}`}>
                      <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
                      <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
                      <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>

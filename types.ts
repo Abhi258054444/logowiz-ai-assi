@@ -18,6 +18,7 @@ export interface PollinationsResponse {
   prompt?: string;
   tool_code?: number;
   image_input?: string[];
+  usage?: UsageMetadata;
 }
 
 export interface ChatState {
@@ -37,9 +38,16 @@ export interface NetworkLogItem {
   duration: number; // in ms
 }
 
+export interface UsageMetadata {
+  promptTokenCount: number;
+  candidatesTokenCount: number;
+  totalTokenCount: number;
+}
+
 export interface ServiceResponse {
   data: PollinationsResponse;
   debug: NetworkLogItem;
+  usage?: UsageMetadata;
 }
 
 export interface PromptVersion {
@@ -51,5 +59,5 @@ export interface PromptVersion {
   promptType?: 'system' | 'enhancer' | 'editor-enhancer'; // New field to distinguish prompt types
 }
 
-export type ModelMode = 'pollinations' | 'gemini' | 'gemini-lite' | 'gemini-pro' | 'openai' | 'gemini-2.5-pro';
+export type ModelMode = 'pollinations' | 'openai' | 'gemini-2.5-pro' | 'gemini-2.5-flash';
 export type ImageModelMode = 'pollinations' | 'together-seedream';
