@@ -3,15 +3,15 @@ import { uploadImage } from './uploadService';
 
 const TOGETHER_GEN_URL = 'https://api.together.xyz/v1/images/generations';
 
-export const generateImageTogether = async (prompt: string, apiKey: string): Promise<{ base64: string, url: string, debug: NetworkLogItem }> => {
+export const generateImageTogether = async (prompt: string, apiKey: string, width: number = 768, height: number = 1152): Promise<{ base64: string, url: string, debug: NetworkLogItem }> => {
   const startTime = Date.now();
   const requestId = Math.random().toString(36).substring(7);
   
   const requestPayload = { 
       model: "ByteDance-Seed/Seedream-4.0",
       prompt, 
-      width: 1024,
-      height: 1024,
+      width,
+      height,
       n: 1,
       response_format: "b64_json"
   };

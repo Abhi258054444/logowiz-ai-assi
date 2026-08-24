@@ -3,14 +3,16 @@ import { NetworkLogItem, Message, ServiceResponse, PollinationsResponse } from '
 export const sendOpenAiChatRequest = async (
   history: Message[], 
   systemPrompt: string, 
-  apiKey: string,
-  modelName: string = 'gpt-5.4-nano'
+  apiKey?: string,
+  modelName: string = 'gpt-5-mini'
 ): Promise<ServiceResponse> => {
   const startTime = Date.now();
   const requestId = Math.random().toString(36).substring(7);
 
-  if (!apiKey) {
-    throw new Error("OpenAI API Key is required. Please set it in Settings.");
+  const effectiveApiKey = apiKey || process.env.OPENAI_API_KEY || process.env.API_KEY || '';
+
+  if (!effectiveApiKey) {
+    throw new Error("OpenAI API Key is required. Please set it in Settings or .env file.");
   }
 
   // Filter out system messages from history
@@ -62,7 +64,7 @@ export const sendOpenAiChatRequest = async (
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        'Authorization': effectiveApiKey.startsWith('Bearer ') ? effectiveApiKey : `Bearer ${effectiveApiKey}`
       },
       body: JSON.stringify(requestBody)
     });
@@ -140,12 +142,14 @@ export const enhanceImagePromptOpenAi = async (
   toolCode: number = 1,
   imageInput?: string,
   apiKey?: string,
-  modelName: string = 'gpt-5.4-nano'
+  modelName: string = 'gpt-5-mini'
 ): Promise<{ enhancedPrompt: string, debug: NetworkLogItem }> => {
   const startTime = Date.now();
   const requestId = Math.random().toString(36).substring(7);
 
-  if (!apiKey) {
+  const effectiveApiKey = apiKey || process.env.OPENAI_API_KEY || process.env.API_KEY || '';
+
+  if (!effectiveApiKey) {
     console.warn("OpenAI API Key is missing for enhancer, using original prompt.");
     return { enhancedPrompt: originalPrompt, debug: {
       id: requestId, timestamp: startTime, url: 'local', method: 'skip', requestHeaders: {}, requestBody: {}, responseStatus: 200, responseBody: {}, duration: 0
@@ -193,7 +197,7 @@ export const enhanceImagePromptOpenAi = async (
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        'Authorization': effectiveApiKey.startsWith('Bearer ') ? effectiveApiKey : `Bearer ${effectiveApiKey}`
       },
       body: JSON.stringify(requestBody)
     });
@@ -265,10 +269,15 @@ export const enhanceImagePromptOpenAi = async (
 
 const cleanJsonString = (str: string): string => {
   let cleaned = str.trim();
-  if (cleaned.startsWith('\`\`\`json')) {
-    cleaned = cleaned.replace(/^\`\`\`json/, '').replace(/\`\`\`$/, '');
-  } else if (cleaned.startsWith('\`\`\`')) {
-    cleaned = cleaned.replace(/^\`\`\`/, '').replace(/\`\`\`$/, '');
+  // Aggressively remove any markdown code block wrappers if they exist
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '');
+
+  // Find the first { and the last } to extract the JSON object, ignoring any conversational filler
+  const startIdx = cleaned.indexOf('{');
+  const endIdx = cleaned.lastIndexOf('}');
+  
+  if (startIdx !== -1 && endIdx !== -1 && endIdx >= startIdx) {
+    cleaned = cleaned.substring(startIdx, endIdx + 1);
   }
   
   if (cleaned.startsWith('{')) {

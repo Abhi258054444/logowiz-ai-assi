@@ -258,13 +258,16 @@ export const enhanceImagePrompt = async (
 
 const cleanJsonString = (str: string): string => {
   let cleaned = str.trim();
-  // Remove markdown code blocks if present
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.replace(/^```json/, '').replace(/```$/, '');
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```/, '').replace(/```$/, '');
-  }
+  // Aggressively remove any markdown code block wrappers if they exist
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '');
+
+  // Find the first { and the last } to extract the JSON object, ignoring any conversational filler
+  const startIdx = cleaned.indexOf('{');
+  const endIdx = cleaned.lastIndexOf('}');
   
+  if (startIdx !== -1 && endIdx !== -1 && endIdx >= startIdx) {
+    cleaned = cleaned.substring(startIdx, endIdx + 1);
+  }
   // Heuristic to fix unescaped newlines within JSON strings
   // This targets "response_msg", "prompt", etc. to replace raw newlines with \n
   cleaned = cleaned.replace(/("[a-zA-Z0-9_]+"\s*:\s*")((?:[^"\\]|\\.|[\r\n])*)(")/g, (match, p1, p2, p3) => {
@@ -276,7 +279,7 @@ const cleanJsonString = (str: string): string => {
   return cleaned.trim();
 };
 
-export const generateImage = async (prompt: string, imageInput?: string, modelName: string = 'flux-2-dev'): Promise<{ base64: string, url: string, debug: NetworkLogItem }> => {
+export const generateImage = async (prompt: string, imageInput?: string, modelName: string = 'flux-2-dev', width: number = 768, height: number = 1152): Promise<{ base64: string, url: string, debug: NetworkLogItem }> => {
   const startTime = Date.now();
   const requestId = Math.random().toString(36).substring(7);
 
@@ -286,7 +289,7 @@ export const generateImage = async (prompt: string, imageInput?: string, modelNa
   const seed = Math.floor(Math.random() * 10000);
   
   // Use gen.pollinations.ai/image endpoint as requested
-  let url = `https://gen.pollinations.ai/image/${encodedPrompt}?width=1024&height=1024&nologo=true&seed=${seed}&model=${modelName}`;
+  let url = `https://gen.pollinations.ai/image/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${seed}&model=${modelName}`;
   
   if (imageInput) {
     // If imageInput exists, add it as a query parameter

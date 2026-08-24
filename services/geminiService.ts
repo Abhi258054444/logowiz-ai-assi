@@ -150,14 +150,14 @@ export const sendGeminiChatRequest = async (history: Message[], systemPrompt: st
   });
 
   // Add system instruction via config (Proper System Structure for Gemini)
-  // Thinking Config is not available for Gemini 2.0 Flash or Flash-Lite
   const config: any = {
     systemInstruction: systemPrompt,
-    responseMimeType: "application/json", // Enforce JSON mode
   };
 
   if (MODEL_NAME === 'gemini-3.1-pro-preview') {
     config.tools = [{ googleSearch: {} }];
+  } else {
+    config.responseMimeType = "application/json";
   }
 
   let responseStatus = 0;
@@ -171,6 +171,8 @@ export const sendGeminiChatRequest = async (history: Message[], systemPrompt: st
     });
 
     responseStatus = 200; // SDK doesn't give raw status easily, assume success if no throw
+    
+    // Standard text response path
     const textOutput = response.text || "";
     
     // Attempt to clean JSON string if it comes wrapped in markdown or contains raw newlines
@@ -362,13 +364,18 @@ export const enhanceImagePromptGemini = async (
 
 const cleanJsonString = (str: string): string => {
   let cleaned = str.trim();
-  // Remove markdown code blocks if present
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.replace(/^```json/, '').replace(/```$/, '');
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```/, '').replace(/```$/, '');
-  }
   
+  // Aggressively remove any markdown code block wrappers if they exist
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '');
+
+  // Find the first { and the last } to extract the JSON object, ignoring any conversational filler
+  const startIdx = cleaned.indexOf('{');
+  const endIdx = cleaned.lastIndexOf('}');
+  
+  if (startIdx !== -1 && endIdx !== -1 && endIdx >= startIdx) {
+    cleaned = cleaned.substring(startIdx, endIdx + 1);
+  }
+
   // Fix for Concatenated JSONs (e.g. {...}{...})
   // Sometimes the model or merged history creates adjacent JSON blocks.
   // We strictly look for the first valid closing brace matching the first opening brace.

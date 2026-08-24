@@ -73,6 +73,20 @@ const Sidebar: React.FC<SidebarProps> = ({
                 Pollinations
               </button>
               <button 
+                onClick={() => setModelMode('gpt-5-mini')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${modelMode === 'gpt-5-mini' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
+              >
+                <Zap size={16} />
+                GPT-5 Mini
+              </button>
+              <button 
+                onClick={() => setModelMode('gpt-5-nano')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${modelMode === 'gpt-5-nano' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
+              >
+                <Zap size={16} />
+                GPT-5 Nano
+              </button>
+              <button 
                 onClick={() => setModelMode('openai')}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${modelMode === 'openai' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
               >
@@ -106,6 +120,20 @@ const Sidebar: React.FC<SidebarProps> = ({
               >
                 <Sparkles size={16} />
                 Pollinations
+              </button>
+              <button 
+                onClick={() => setEnhancerModelMode('gpt-5-mini')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${enhancerModelMode === 'gpt-5-mini' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
+              >
+                <Zap size={16} />
+                GPT-5 Mini
+              </button>
+              <button 
+                onClick={() => setEnhancerModelMode('gpt-5-nano')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${enhancerModelMode === 'gpt-5-nano' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
+              >
+                <Zap size={16} />
+                GPT-5 Nano
               </button>
               <button 
                 onClick={() => setEnhancerModelMode('openai')}
@@ -162,6 +190,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                 ) : !togetherApiKey && (
                      <span className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded text-slate-500 border border-slate-700">Set Key</span>
                 )}
+              </button>
+
+              <button 
+                onClick={() => setImageModelMode('gpt-image')}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${imageModelMode === 'gpt-image' ? 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-600' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
+              >
+                <span className="flex items-center gap-3">
+                    <ImageIcon size={16} /> GPT Image API
+                </span>
+                {imageModelMode === 'gpt-image' && <div className="w-2 h-2 rounded-full bg-indigo-500"></div>}
               </button>
             </div>
           </div>

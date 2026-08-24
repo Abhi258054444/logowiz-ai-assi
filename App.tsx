@@ -5,9 +5,10 @@ import Sidebar from './components/Sidebar';
 import SettingsModal from './components/SettingsModal';
 import DebugPanel from './components/DebugPanel';
 import Logo from './components/Logo';
-import { Message, NetworkLogItem, ModelMode, ImageModelMode } from './types';
+import { Message, NetworkLogItem, ModelMode, ImageModelMode, FlyerQuestionToolCall } from './types';
 import { sendChatRequest, generateImage, enhanceImagePrompt } from './services/pollinationsService';
 import { generateImageTogether } from './services/togetherService';
+import { generateGptImage } from './services/gptImageService';
 import { sendGeminiChatRequest, enhanceImagePromptGemini, summarizeChatHistory } from './services/geminiService';
 import { sendOpenAiChatRequest, enhanceImagePromptOpenAi } from './services/openaiService';
 import { countTokens } from './services/tokenService';
@@ -59,6 +60,11 @@ const App: React.FC = () => {
   const [isSummaryModeEnabled, setIsSummaryModeEnabled] = useState<boolean>(() => {
     const saved = localStorage.getItem('isSummaryModeEnabled');
     return saved !== null ? saved === 'true' : false; 
+  });
+
+  const [isEnhancerEnabled, setIsEnhancerEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem('isEnhancerEnabled');
+    return saved !== null ? saved === 'true' : true; 
   });
 
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
@@ -271,7 +277,8 @@ const App: React.FC = () => {
     localStorage.setItem('useCodebaseEnhancerPrompt', String(useCodebaseEnhancerPrompt));
     localStorage.setItem('showAttachments', String(showAttachments));
     localStorage.setItem('isSummaryModeEnabled', String(isSummaryModeEnabled));
-  }, [useCodebasePrompt, useCodebaseEnhancerPrompt, showAttachments, isSummaryModeEnabled]);
+    localStorage.setItem('isEnhancerEnabled', String(isEnhancerEnabled));
+  }, [useCodebasePrompt, useCodebaseEnhancerPrompt, showAttachments, isSummaryModeEnabled, isEnhancerEnabled]);
 
   useEffect(() => {
     if (!isDataLoaded) return;
@@ -323,6 +330,8 @@ const App: React.FC = () => {
 
   const getModelNameDisplay = () => {
     if (modelMode === 'pollinations') return 'Standard';
+    if (modelMode === 'gpt-5-mini') return 'GPT-5 Mini';
+    if (modelMode === 'gpt-5-nano') return 'GPT-5 Nano';
     if (modelMode === 'openai') return 'OpenAI (GPT-5.4 Nano)';
     if (modelMode === 'gemini-2.5-pro') return 'Gemini 2.5 Pro';
     if (modelMode === 'gemini-2.5-flash') return 'Gemini 2.5 Flash';
@@ -366,8 +375,9 @@ const App: React.FC = () => {
         const { data, debug } = await sendChatRequest([...messages, newMessage], systemPrompt, pollinationsTextModel);
         responseData = data;
         debugInfo = debug;
-      } else if (modelMode === 'openai') {
-        const { data, debug } = await sendOpenAiChatRequest([...messages, newMessage], systemPrompt, openAiApiKey);
+      } else if (modelMode === 'openai' || modelMode === 'gpt-5-mini' || modelMode === 'gpt-5-nano') {
+        const targetModel = modelMode === 'gpt-5-mini' ? 'gpt-5-mini' : (modelMode === 'gpt-5-nano' ? 'gpt-5-nano' : 'gpt-5.4-nano');
+        const { data, debug } = await sendOpenAiChatRequest([...messages, newMessage], systemPrompt, openAiApiKey, targetModel);
         responseData = data;
         debugInfo = debug;
       } else {
@@ -384,6 +394,24 @@ const App: React.FC = () => {
 
       const newMessages: Message[] = [];
 
+      // Handle tool_code 5 (Ask Questions)
+      if (responseData.tool_code === 5 && responseData.questions) {
+        const toolCallData = responseData as FlyerQuestionToolCall;
+        
+        newMessages.push({
+          role: 'assistant',
+          content: JSON.stringify(responseData),
+          displayContent: toolCallData.context_summary || 'I have a few questions to help design your flyer:',
+          type: 'questions',
+          questionData: toolCallData,
+          isQuestionAnswered: false
+        });
+        
+        setMessages(prev => [...prev, ...newMessages]);
+        setIsLoading(false);
+        return;
+      }
+
       if (responseData.response_msg) {
         newMessages.push({
           role: 'assistant',
@@ -398,13 +426,14 @@ const App: React.FC = () => {
         let finalPrompt = responseData.prompt;
 
         // Run Enhancer if Generating New Image (Tool Code 1)
-        if (responseData.tool_code === 1) {
+        if (responseData.tool_code === 1 && isEnhancerEnabled) {
             try {
               let enhancerResult;
               if (enhancerModelMode === 'pollinations') {
                 enhancerResult = await enhanceImagePrompt(finalPrompt, enhancerPrompt, 1, undefined, pollinationsTextModel);
-              } else if (enhancerModelMode === 'openai') {
-                enhancerResult = await enhanceImagePromptOpenAi(finalPrompt, enhancerPrompt, 1, undefined, openAiApiKey);
+              } else if (enhancerModelMode === 'openai' || enhancerModelMode === 'gpt-5-mini' || enhancerModelMode === 'gpt-5-nano') {
+                const targetEnhancerModel = enhancerModelMode === 'gpt-5-mini' ? 'gpt-5-mini' : (enhancerModelMode === 'gpt-5-nano' ? 'gpt-5-nano' : 'gpt-5.4-nano');
+                enhancerResult = await enhanceImagePromptOpenAi(finalPrompt, enhancerPrompt, 1, undefined, openAiApiKey, targetEnhancerModel);
               } else {
                 const modelName = enhancerModelMode === 'gemini-2.5-pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
                 enhancerResult = await enhanceImagePromptGemini(finalPrompt, enhancerPrompt, 1, undefined, modelName);
@@ -434,6 +463,14 @@ const App: React.FC = () => {
         });
         
         let imageInput = responseData.image_input && responseData.image_input.length > 0 ? responseData.image_input[0] : undefined;
+        let aspectRatio = responseData.aspect_ratio || "1040x1280";
+        let width = 1040;
+        let height = 1280;
+        if (aspectRatio.includes('x')) {
+            const parts = aspectRatio.split('x');
+            width = parseInt(parts[0], 10) || width;
+            height = parseInt(parts[1], 10) || height;
+        }
         
         // --- IMAGE GENERATION LOGIC ---
         try {
@@ -443,16 +480,21 @@ const App: React.FC = () => {
           const isEdit = responseData.tool_code === 2;
           const isGen = responseData.tool_code === 1;
 
-          // Decide whether to use Together AI or Pollinations
+          // Decide whether to use Together AI, GPT Image API, or Pollinations
           if (isTogetherEnabled && (isGen || isEdit)) {
              // TOGETHER GEN (Use Gen for both since we don't have an edit endpoint for Together AI yet)
-             const { base64, url, debug } = await generateImageTogether(finalPrompt, togetherApiKey);
+             const { base64, url, debug } = await generateImageTogether(finalPrompt, togetherApiKey, width, height);
              genResult = { base64, url };
              setNetworkLogs(prev => [...prev, debug]);
              setTotalCost(prev => prev + PRICING.TOGETHER_AI_IMAGE);
+          } else if (imageModelMode === 'gpt-image' && (isGen || isEdit)) {
+             // GPT IMAGE API
+             const { base64, url, debug } = await generateGptImage(finalPrompt, responseData.image_input, undefined, aspectRatio);
+             genResult = { base64, url };
+             setNetworkLogs(prev => [...prev, debug]);
           } else {
              // USE POLLINATIONS (Fallback or Default)
-             const { base64, url, debug } = await generateImage(finalPrompt, imageInput, pollinationsImageModel);
+             const { base64, url, debug } = await generateImage(finalPrompt, imageInput, pollinationsImageModel, width, height);
              genResult = { base64, url };
              setNetworkLogs(prev => [...prev, debug]);
           }
@@ -532,8 +574,8 @@ const App: React.FC = () => {
       }
       
       let errorMessage = "Sorry, I encountered an issue connecting to the design studio. Please try again.";
-      if (modelMode === 'openai' && !openAiApiKey) {
-        errorMessage = "OpenAI API Key is required. Please configure it in Settings.";
+      if ((modelMode === 'openai' || modelMode === 'gpt-5-mini' || modelMode === 'gpt-5-nano') && !openAiApiKey && !process.env.OPENAI_API_KEY && !process.env.API_KEY) {
+        errorMessage = "OpenAI API Key is required. Please configure it in Settings or .env file.";
       } else if (error.message) {
         errorMessage = `Error: ${error.message}`;
       }
@@ -547,6 +589,70 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Handler for when user submits answers to function call questions
+  const handleQuestionSubmit = (answers: Record<string, string | string[]>, questionIndex: number) => {
+    // Mark the question message as answered
+    setMessages(prev => prev.map((msg, idx) => {
+      if (idx === questionIndex && msg.type === 'questions') {
+        return { ...msg, isQuestionAnswered: true };
+      }
+      return msg;
+    }));
+
+    // Format answers into a natural text message for the AI
+    const answerLines: string[] = [];
+    const base64Images: string[] = [];
+    const attachments: string[] = [];
+    const targetMessage = messages[questionIndex];
+    const questionsList = targetMessage?.questionData?.questions || [];
+
+    for (const [questionId, answer] of Object.entries(answers)) {
+      const questionObj = questionsList.find(q => q.id === questionId);
+      const questionText = questionObj ? questionObj.question : questionId;
+      const formattedQ = `${questionId.toUpperCase()}: ${questionText}`;
+
+      let formattedA = '';
+      if (Array.isArray(answer)) {
+        if (answer.length > 0) {
+          formattedA = `A: ${answer.join(', ')}`;
+        } else {
+          formattedA = `A: [No preference]`;
+        }
+      } else if (answer && answer.trim()) {
+        if (answer.startsWith('{')) {
+          try {
+            const data = JSON.parse(answer);
+            if (data.url && data.base64) {
+              base64Images.push(data.base64);
+              attachments.push(data.url);
+              formattedA = `A: [Image Attached]`;
+            } else {
+              formattedA = `A: ${answer}`;
+            }
+          } catch (e) {
+            formattedA = `A: ${answer}`;
+          }
+        } else {
+          formattedA = `A: ${answer}`;
+        }
+      } else {
+        formattedA = `A: [No preference]`;
+      }
+      
+      answerLines.push(`${formattedQ}\n${formattedA}`);
+    }
+
+    const formattedAnswer = answerLines.join('\n\n');
+    
+    // Send the answers as a user message to continue the conversation
+    handleSendMessage(
+      formattedAnswer, 
+      'user', 
+      attachments.length > 0 ? attachments : undefined, 
+      base64Images.length > 0 ? base64Images : undefined
+    );
   };
 
   return (
@@ -590,6 +696,8 @@ const App: React.FC = () => {
           onToggleShowAttachments={setShowAttachments}
           isSummaryModeEnabled={isSummaryModeEnabled}
           onToggleSummaryMode={setIsSummaryModeEnabled}
+          isEnhancerEnabled={isEnhancerEnabled}
+          onToggleEnhancer={setIsEnhancerEnabled}
           modelMode={modelMode}
           setModelMode={setModelMode}
           imageModelMode={imageModelMode}
@@ -631,7 +739,8 @@ const App: React.FC = () => {
               <ChatMessage 
                 key={index} 
                 message={msg} 
-                showAttachments={showAttachments} 
+                showAttachments={showAttachments}
+                onQuestionSubmit={msg.type === 'questions' ? (answers) => handleQuestionSubmit(answers, index) : undefined}
               />
             ))}
             

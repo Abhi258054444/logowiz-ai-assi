@@ -20,6 +20,8 @@ interface SettingsModalProps {
   onToggleShowAttachments: (val: boolean) => void;
   isSummaryModeEnabled: boolean;
   onToggleSummaryMode: (val: boolean) => void;
+  isEnhancerEnabled: boolean;
+  onToggleEnhancer: (val: boolean) => void;
   modelMode: ModelMode;
   setModelMode: (mode: ModelMode) => void;
   imageModelMode: ImageModelMode;
@@ -46,6 +48,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   onToggleShowAttachments,
   isSummaryModeEnabled,
   onToggleSummaryMode,
+  isEnhancerEnabled,
+  onToggleEnhancer,
   modelMode,
   setModelMode,
   imageModelMode,
@@ -79,7 +83,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       else if (activeType === 'enhancer') setLocalPrompt(enhancerPrompt);
       
       setTogetherKey(localStorage.getItem('togetherApiKey') || '');
-      setOpenAiKey(localStorage.getItem('openAiApiKey') || '');
+      setOpenAiKey(localStorage.getItem('openAiApiKey') || process.env.OPENAI_API_KEY || process.env.API_KEY || '');
     }
   }, [isOpen, activeType, systemPrompt, enhancerPrompt]);
 
@@ -421,6 +425,34 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                        </button>
 
                        <button 
+                          onClick={() => setModelMode('gpt-5-mini')}
+                          className={`flex items-center justify-between p-4 rounded-xl border transition-all ${modelMode === 'gpt-5-mini' ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-100' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-750'}`}
+                       >
+                          <div className="flex items-center gap-3">
+                             <Zap size={20} className={modelMode === 'gpt-5-mini' ? 'text-indigo-400' : 'text-slate-500'} />
+                             <div className="text-left">
+                                <div className="font-bold text-sm">OpenAI GPT-5 Mini</div>
+                                <div className="text-xs opacity-70">Fast & efficient GPT-5 mini model</div>
+                             </div>
+                          </div>
+                          {modelMode === 'gpt-5-mini' && <div className="w-3 h-3 rounded-full bg-indigo-500 shadow-lg shadow-indigo-500/50"></div>}
+                       </button>
+
+                       <button 
+                          onClick={() => setModelMode('gpt-5-nano')}
+                          className={`flex items-center justify-between p-4 rounded-xl border transition-all ${modelMode === 'gpt-5-nano' ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-100' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-750'}`}
+                       >
+                          <div className="flex items-center gap-3">
+                             <Zap size={20} className={modelMode === 'gpt-5-nano' ? 'text-cyan-400' : 'text-slate-500'} />
+                             <div className="text-left">
+                                <div className="font-bold text-sm">OpenAI GPT-5 Nano</div>
+                                <div className="text-xs opacity-70">Ultra-lightweight GPT-5 nano model</div>
+                             </div>
+                          </div>
+                          {modelMode === 'gpt-5-nano' && <div className="w-3 h-3 rounded-full bg-cyan-500 shadow-lg shadow-cyan-500/50"></div>}
+                       </button>
+
+                       <button 
                           onClick={() => setModelMode('openai')}
                           className={`flex items-center justify-between p-4 rounded-xl border transition-all ${modelMode === 'openai' ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-100' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-750'}`}
                        >
@@ -428,7 +460,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                              <Zap size={20} className={modelMode === 'openai' ? 'text-indigo-400' : 'text-slate-500'} />
                              <div className="text-left">
                                 <div className="font-bold text-sm">OpenAI (GPT-5.4 Nano)</div>
-                                <div className="text-xs opacity-70">Requires OpenAI API Key</div>
+                                <div className="text-xs opacity-70">Standard OpenAI model</div>
                              </div>
                           </div>
                           {modelMode === 'openai' && <div className="w-3 h-3 rounded-full bg-indigo-500 shadow-lg shadow-indigo-500/50"></div>}
@@ -504,6 +536,20 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                           </div>
                           {imageModelMode === 'pollinations' && <div className="w-3 h-3 rounded-full bg-primary shadow-lg shadow-primary/50"></div>}
                        </button>
+
+                       <button 
+                          onClick={() => setImageModelMode('gpt-image')}
+                          className={`flex items-center justify-between p-4 rounded-xl border transition-all ${imageModelMode === 'gpt-image' ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-100' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-750'}`}
+                       >
+                          <div className="flex items-center gap-3">
+                             <ImageIcon size={20} className={imageModelMode === 'gpt-image' ? 'text-indigo-400' : 'text-slate-500'} />
+                             <div className="text-left">
+                                <div className="font-bold text-sm">GPT Image API</div>
+                                <div className="text-xs opacity-70">Local / Custom Backend API</div>
+                             </div>
+                          </div>
+                          {imageModelMode === 'gpt-image' && <div className="w-3 h-3 rounded-full bg-indigo-500 shadow-lg shadow-indigo-500/50"></div>}
+                       </button>
                     </div>
 
                     {imageModelMode === 'pollinations' && (
@@ -564,6 +610,23 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                             className={`relative w-11 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-primary ${isSummaryModeEnabled ? 'bg-primary' : 'bg-slate-600'}`}
                         >
                             <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${isSummaryModeEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
+                    </div>
+
+                    <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex items-center justify-between mt-4">
+                        <div>
+                           <label className="block text-sm font-bold text-slate-200">
+                               Enable Prompt Enhancer
+                           </label>
+                           <p className="text-xs text-slate-500 mt-1">
+                               Enhances the prompt before sending it to the image generation API.
+                           </p>
+                        </div>
+                        <button 
+                            onClick={() => onToggleEnhancer(!isEnhancerEnabled)}
+                            className={`relative w-11 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-primary ${isEnhancerEnabled ? 'bg-primary' : 'bg-slate-600'}`}
+                        >
+                            <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${isEnhancerEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
                         </button>
                     </div>
                  </div>
